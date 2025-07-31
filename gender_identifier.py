@@ -41,7 +41,7 @@ transform = transforms.Compose([
                          std=[0.229, 0.224, 0.225])
 ])
 
-CONFIDENCE_THRESHOLD = 0.70
+CONFIDENCE_THRESHOLD = 0.80
 
 def classify_image(img: Image.Image):
     img = img.convert("RGB")
