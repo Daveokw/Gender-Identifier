@@ -51,7 +51,7 @@ transform = transforms.Compose([
 ])
 
 # Confidence threshold
-CONFIDENCE_THRESHOLD = 0.65
+CONFIDENCE_THRESHOLD = 0.70
 
 # GUI Setup
 root = tk.Tk()
