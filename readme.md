@@ -3,8 +3,7 @@
 A smart, modern machine learning app built with Python and Streamlit that instantly and accurately identifies whether a face image is male or female from a single uploaded or captured image.
 
 ## Live Demo
-Try the live app here: [Gender Identifier on Streamlit](https://gender-identifier.streamlit.app) *(Note: this live link may need updating if redeployed)*
-
+Try the live app here: [Gender Identifier on Streamlit](https://gender-identifier.streamlit.app)
 ## About the Project
 Gender Identifier uses the state-of-the-art **DeepFace** library to extract facial features and predict gender. Originally utilizing a locally-trained ResNet18 model, it has been overhauled to leverage industry-standard pre-trained facial recognition weights (such as VGG-Face) to guarantee robust and reliable predictions in various lighting conditions and angles.
 
