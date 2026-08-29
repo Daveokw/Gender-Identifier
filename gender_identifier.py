@@ -1,69 +1,117 @@
 import streamlit as st
-import torch
-import torch.nn.functional as F
-import torchvision.transforms as transforms
-from torchvision import models
-from sklearn.preprocessing import LabelEncoder
-from PIL import Image, ImageEnhance
-import numpy as np
-import joblib
-import cv2
 import tempfile
+from PIL import Image
 import os
+from deepface import DeepFace
 
-def contains_face(image_path):
-    face_cascade = cv2.CascadeClassifier(
-        cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
-    )
-    img = cv2.imread(image_path)
-    if img is None:
-        return False
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    faces = face_cascade.detectMultiScale(gray, 1.05, 3)
-    return len(faces) > 0
+# Streamlit UI Configuration
+st.set_page_config(page_title="Gender Identifier", page_icon="🧑‍🦰", layout="wide")
 
-# Load model
-model_path = "face_cnn_model.pth"
-encoder_path = "label_encoder.joblib"
+# Custom CSS for Premium Design
+st.markdown("""
+<style>
+    /* Google Fonts */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
+    
+    html, body, [class*="css"] {
+        font-family: 'Inter', sans-serif;
+    }
 
-num_classes = 2
-model = models.resnet18(pretrained=False)
-model.fc = torch.nn.Linear(model.fc.in_features, num_classes)
-model.load_state_dict(torch.load(model_path, map_location="cpu"))
-model.eval()
+    /* Glassmorphism background for main container */
+    .block-container {
+        background: rgba(255, 255, 255, 0.05);
+        backdrop-filter: blur(15px);
+        -webkit-backdrop-filter: blur(15px);
+        border-radius: 20px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        padding: 3rem !important;
+        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        margin-top: 2rem;
+    }
 
-label_encoder = joblib.load(encoder_path)
+    /* Title Styling */
+    h1 {
+        color: #E2E8F0 !important;
+        text-align: center;
+        font-weight: 700;
+        letter-spacing: -0.5px;
+        background: -webkit-linear-gradient(45deg, #FF6B6B, #4ECDC4);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 2rem !important;
+    }
 
-transform = transforms.Compose([
-    transforms.Resize((224, 224)),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                         std=[0.229, 0.224, 0.225])
-])
+    /* Subheaders */
+    h3 {
+        color: #A0AEC0 !important;
+        font-weight: 600;
+    }
 
-CONFIDENCE_THRESHOLD = 0.65
+    /* Custom Button */
+    .stButton>button {
+        width: 100%;
+        border-radius: 12px;
+        background: linear-gradient(135deg, #667EEA 0%, #764BA2 100%);
+        color: white;
+        border: none;
+        padding: 0.6rem;
+        font-weight: 600;
+        transition: all 0.3s ease;
+    }
+    
+    .stButton>button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+        color: white;
+        border: none;
+    }
 
-def classify_image(img: Image.Image):
-    img = img.convert("RGB")
+    /* File Uploader styling */
+    .stFileUploader {
+        background: rgba(0, 0, 0, 0.2);
+        border-radius: 15px;
+        padding: 1rem;
+        border: 1px dashed rgba(255, 255, 255, 0.2);
+    }
+    
+    /* Metrics styling */
+    [data-testid="stMetricValue"] {
+        font-size: 2.5rem;
+        font-weight: 700;
+        color: #4ECDC4;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-    enhancer = ImageEnhance.Sharpness(img)
-    img = enhancer.enhance(2.0)
-    img = ImageEnhance.Contrast(img).enhance(1.2)
-    img = ImageEnhance.Brightness(img).enhance(1.1)
+st.title("Gender Identifier")
 
-    input_tensor = transform(img).unsqueeze(0)
-    with torch.no_grad():
-        output = model(input_tensor)
-        probabilities = F.softmax(output, dim=1)
-        max_prob, pred_class = torch.max(probabilities, dim=1)
-        confidence = max_prob.item()
-        label = label_encoder.inverse_transform([pred_class.item()])[0]
-
-    return label, confidence, img
-
-# Streamlit UI
-st.set_page_config(page_title="🧑‍🦰 Gender Identifier", layout="centered")
-st.title("🧑‍🦰 Gender Identifier")
+def classify_gender(image_path):
+    try:
+        # DeepFace analyze returns a list of dictionaries (one for each face detected)
+        # We use 'retinaface' backend which is far superior for dark/angled/CGI faces
+        result = DeepFace.analyze(
+            img_path=image_path, 
+            actions=['gender'], 
+            enforce_detection=False,
+            detector_backend='retinaface'
+        )
+        
+        if isinstance(result, list):
+            result = result[0]
+            
+        gender_dict = result['gender']
+        # DeepFace returns percentages for 'Man' and 'Woman'
+        dominant_gender = max(gender_dict, key=gender_dict.get)
+        raw_confidence = gender_dict[dominant_gender] / 100.0
+        
+        # Cap confidence at 99.9% for realistic UX display
+        confidence = min(raw_confidence, 0.999)
+        
+        display_gender = "Male" if dominant_gender == "Man" else "Female"
+        
+        return display_gender, confidence, None
+    except Exception as e:
+        return None, 0.0, str(e)
 
 # Session state init
 if "use_camera" not in st.session_state:
@@ -75,63 +123,71 @@ if "predicted" not in st.session_state:
 if "temp_path" not in st.session_state:
     st.session_state.temp_path = ""
 
-st.subheader("📁 Upload Image")
-uploaded_file = st.file_uploader("Upload an image", type=["jpg", "jpeg", "png"])
+# Layout with tabs
+tab1, tab2 = st.tabs(["📁 Upload Image", "📷 Capture from Webcam"])
 
-if uploaded_file:
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp:
-        temp.write(uploaded_file.read())
-        temp_path = temp.name
+with tab1:
+    st.markdown("### Upload a Photo")
+    uploaded_file = st.file_uploader("Choose a clear portrait image...", type=["jpg", "jpeg", "png"])
 
-    if contains_face(temp_path):
-        image = Image.open(temp_path)
-        label, confidence, enhanced_img = classify_image(image)
-
-        st.image(enhanced_img, caption="Uploaded Image", use_container_width=True)
-
-        if confidence >= CONFIDENCE_THRESHOLD:
-            st.success(f"Predicted Gender: {label}")
-        else:
-            st.warning("⚠️ Uncertain prediction. Please upload a clearer image.")
-    else:
-        st.error("❌ No human face detected. Please upload a valid image.")
-
-# Webcam Capture 
-st.markdown("---")
-st.subheader("📷 Capture from Webcam")
- 
-if not st.session_state.get("use_camera", False) and not st.session_state.image_captured:
-    if st.button("📷 Open Camera"):
-        st.session_state.use_camera = True
-        st.session_state.predicted = False
-
-if st.session_state.get("use_camera", False) and not st.session_state.image_captured:
-    camera_image = st.camera_input("Take a picture")
-    if camera_image:
+    if uploaded_file:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp:
-            temp.write(camera_image.getbuffer())
-            st.session_state.temp_path = temp.name
-            st.session_state.image_captured = True
+            temp.write(uploaded_file.read())
+            temp_path = temp.name
+
+        col1, col2 = st.columns(2)
+        with col1:
+            image = Image.open(temp_path)
+            st.image(image, caption="Uploaded Image", use_container_width=True)
+
+        with col2:
+            with st.spinner("Analyzing facial features..."):
+                label, confidence, error = classify_gender(temp_path)
+                
+                if label:
+                    st.success("✅ Analysis Complete")
+                    st.metric(label="Predicted Gender", value=label.capitalize(), delta=f"{confidence*100:.1f}% Confidence")
+                else:
+                    st.error(f"❌ Error during analysis: {error}")
+
+with tab2:
+    st.markdown("### Take a Photo")
+    
+    if not st.session_state.get("use_camera", False) and not st.session_state.image_captured:
+        if st.button("📸 Enable Camera"):
+            st.session_state.use_camera = True
             st.session_state.predicted = False
-        st.session_state.use_camera = False
-        st.rerun()
+            st.rerun()
 
-if st.session_state.image_captured:
-    st.image(Image.open(st.session_state.temp_path),
-             caption="Captured Image", use_container_width=True)
+    if st.session_state.get("use_camera", False) and not st.session_state.image_captured:
+        camera_image = st.camera_input("Look straight into the camera")
+        if camera_image:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp:
+                temp.write(camera_image.getbuffer())
+                st.session_state.temp_path = temp.name
+                st.session_state.image_captured = True
+                st.session_state.predicted = False
+            st.session_state.use_camera = False
+            st.rerun()
 
-    if not st.session_state.predicted:
-        if contains_face(st.session_state.temp_path):
-            label, confidence, _ = classify_image(Image.open(st.session_state.temp_path))
-            if confidence >= CONFIDENCE_THRESHOLD:
-                st.success(f"Predicted Gender: **{label}**")
-            else:
-                st.warning("⚠️ Uncertain Prediction.")
-        else:
-            st.error("❌ No human face detected.")
-        st.session_state.predicted = True
+    if st.session_state.image_captured:
+        col1, col2 = st.columns(2)
+        with col1:
+            st.image(Image.open(st.session_state.temp_path), caption="Captured Image", use_container_width=True)
 
-    if st.button("Retake Image"):
-        for key in ("image_captured", "predicted", "temp_path", "use_camera"):
-            st.session_state[key] = False
-        st.rerun()
+        with col2:
+            if not st.session_state.predicted:
+                with st.spinner("Analyzing facial features..."):
+                    label, confidence, error = classify_gender(st.session_state.temp_path)
+                    
+                    if label:
+                        st.success("✅ Analysis Complete")
+                        st.metric(label="Predicted Gender", value=label.capitalize(), delta=f"{confidence*100:.1f}% Confidence")
+                    else:
+                        st.error(f"❌ Error during analysis: {error}")
+                st.session_state.predicted = True
+
+        if st.button("🔄 Retake Image"):
+            for key in ("image_captured", "predicted", "temp_path", "use_camera"):
+                st.session_state[key] = False
+            st.rerun()
