@@ -48,8 +48,7 @@ streamlit run gender_identifier.py
 > [!NOTE]  
 > **Cloud vs. Local TensorFlow:** The `requirements.txt` file is optimized for Streamlit Community Cloud and uses `tensorflow-cpu` to prevent out-of-memory errors during deployment. The performance is **identical** to the standard version on CPU instances. However, if you are running this locally on a machine with a powerful NVIDIA GPU and want hardware acceleration, you can optionally install standard `tensorflow` (the ~500MB version) instead.
 
-## Known Limitations
-Due to the nature of AI training datasets, the model may occasionally struggle to accurately classify images when subjects are wearing head coverings, accessories, or other items that significantly obscure natural facial features and hairlines.
+*(Note: While the underlying models are highly capable, AI predictions are not 100% accurate and may occasionally misclassify images.)*
 
 ## Let's Connect
 Feel free to reach out if you have questions, want to contribute, or just want to collaborate on AI projects!
