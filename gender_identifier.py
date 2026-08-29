@@ -177,7 +177,7 @@ with tab2:
             image.save(st.session_state.temp_path, format="JPEG")
             
             st.session_state.image_captured = True
-                st.session_state.predicted = False
+            st.session_state.predicted = False
             st.session_state.use_camera = False
             st.rerun()
 
