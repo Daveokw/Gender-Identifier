@@ -2,6 +2,7 @@ streamlit
 Pillow
 numpy
 opencv-python-headless
-deepface
+tensorflow-cpu
 tf-keras
 retina-face
+deepface
