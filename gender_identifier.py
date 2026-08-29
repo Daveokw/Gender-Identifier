@@ -1,6 +1,8 @@
 import streamlit as st
 import tempfile
 from PIL import Image
+import pillow_heif
+pillow_heif.register_heif_opener()
 import os
 from deepface import DeepFace
 
@@ -31,13 +33,10 @@ st.markdown("""
 
     /* Title Styling */
     h1 {
-        color: #E2E8F0 !important;
+        color: #4ECDC4 !important;
         text-align: center;
         font-weight: 700;
         letter-spacing: -0.5px;
-        background: -webkit-linear-gradient(45deg, #FF6B6B, #4ECDC4);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
         margin-bottom: 2rem !important;
     }
 
@@ -51,11 +50,11 @@ st.markdown("""
     .stButton>button {
         width: 100%;
         border-radius: 12px;
-        background: linear-gradient(135deg, #667EEA 0%, #764BA2 100%);
-        color: white;
+        background: #4ECDC4;
+        color: #1A202C;
         border: none;
         padding: 0.6rem;
-        font-weight: 600;
+        font-weight: 700;
         transition: all 0.3s ease;
     }
     
@@ -102,16 +101,12 @@ def classify_gender(image_path):
         gender_dict = result['gender']
         # DeepFace returns percentages for 'Man' and 'Woman'
         dominant_gender = max(gender_dict, key=gender_dict.get)
-        raw_confidence = gender_dict[dominant_gender] / 100.0
-        
-        # Cap confidence at 99.9% for realistic UX display
-        confidence = min(raw_confidence, 0.999)
         
         display_gender = "Male" if dominant_gender == "Man" else "Female"
         
-        return display_gender, confidence, None
+        return display_gender, None
     except Exception as e:
-        return None, 0.0, str(e)
+        return None, str(e)
 
 # Session state init
 if "use_camera" not in st.session_state:
@@ -128,25 +123,29 @@ tab1, tab2 = st.tabs(["📁 Upload Image", "📷 Capture from Webcam"])
 
 with tab1:
     st.markdown("### Upload a Photo")
-    uploaded_file = st.file_uploader("Choose a clear portrait image...", type=["jpg", "jpeg", "png"])
+    uploaded_file = st.file_uploader("Choose a clear portrait image...", type=["png", "jpg", "jpeg", "webp", "heic", "heif", "bmp", "tiff"])
 
     if uploaded_file:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp:
-            temp.write(uploaded_file.read())
             temp_path = temp.name
+
+        # Convert image to a standard RGB JPEG so OpenCV/DeepFace can read it
+        image = Image.open(uploaded_file)
+        if image.mode != 'RGB':
+            image = image.convert('RGB')
+        image.save(temp_path, format="JPEG")
 
         col1, col2 = st.columns(2)
         with col1:
-            image = Image.open(temp_path)
             st.image(image, caption="Uploaded Image", use_container_width=True)
 
         with col2:
             with st.spinner("Analyzing facial features..."):
-                label, confidence, error = classify_gender(temp_path)
+                label, error = classify_gender(temp_path)
                 
                 if label:
                     st.success("✅ Analysis Complete")
-                    st.metric(label="Predicted Gender", value=label.capitalize(), delta=f"{confidence*100:.1f}% Confidence")
+                    st.metric(label="Predicted Gender", value=label.capitalize())
                 else:
                     st.error(f"❌ Error during analysis: {error}")
 
@@ -163,9 +162,15 @@ with tab2:
         camera_image = st.camera_input("Look straight into the camera")
         if camera_image:
             with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp:
-                temp.write(camera_image.getbuffer())
                 st.session_state.temp_path = temp.name
-                st.session_state.image_captured = True
+            
+            # Convert camera image to a standard RGB JPEG
+            image = Image.open(camera_image)
+            if image.mode != 'RGB':
+                image = image.convert('RGB')
+            image.save(st.session_state.temp_path, format="JPEG")
+            
+            st.session_state.image_captured = True
                 st.session_state.predicted = False
             st.session_state.use_camera = False
             st.rerun()
@@ -178,11 +183,11 @@ with tab2:
         with col2:
             if not st.session_state.predicted:
                 with st.spinner("Analyzing facial features..."):
-                    label, confidence, error = classify_gender(st.session_state.temp_path)
+                    label, error = classify_gender(st.session_state.temp_path)
                     
                     if label:
                         st.success("✅ Analysis Complete")
-                        st.metric(label="Predicted Gender", value=label.capitalize(), delta=f"{confidence*100:.1f}% Confidence")
+                        st.metric(label="Predicted Gender", value=label.capitalize())
                     else:
                         st.error(f"❌ Error during analysis: {error}")
                 st.session_state.predicted = True
