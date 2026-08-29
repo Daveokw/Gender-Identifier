@@ -91,11 +91,13 @@ def classify_gender(image_path):
         result = DeepFace.analyze(
             img_path=image_path, 
             actions=['gender'], 
-            enforce_detection=False,
+            enforce_detection=True,
             detector_backend='retinaface'
         )
         
         if isinstance(result, list):
+            if len(result) > 1:
+                return None, "Multiple faces detected. Please upload an image with exactly one clearly visible person."
             result = result[0]
             
         gender_dict = result['gender']
@@ -105,6 +107,10 @@ def classify_gender(image_path):
         display_gender = "Male" if dominant_gender == "Man" else "Female"
         
         return display_gender, None
+    except ValueError as e:
+        if "Face could not be detected" in str(e):
+            return None, "No clear face detected. Please use a closer, clearer portrait photo."
+        return None, str(e)
     except Exception as e:
         return None, str(e)
 
