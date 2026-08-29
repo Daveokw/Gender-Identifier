@@ -46,5 +46,8 @@ streamlit run gender_identifier.py
 ```
 *(Note: DeepFace will download the base model weights automatically upon the very first run.)*
 
+> [!NOTE]  
+> **Cloud vs. Local TensorFlow:** The `requirements.txt` file is optimized for Streamlit Community Cloud and uses `tensorflow-cpu` to prevent out-of-memory errors during deployment. The performance is **identical** to the standard version on CPU instances. However, if you are running this locally on a machine with a powerful NVIDIA GPU and want hardware acceleration, you can optionally install standard `tensorflow` (the ~500MB version) instead.
+
 ## Let's Connect
 Feel free to reach out if you have questions, want to contribute, or just want to collaborate on AI projects!
