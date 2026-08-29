@@ -129,7 +129,7 @@ tab1, tab2 = st.tabs(["📁 Upload Image", "📷 Capture from Webcam"])
 
 with tab1:
     st.markdown("### Upload a Photo")
-    uploaded_file = st.file_uploader("Choose a clear portrait image...", type=["png", "jpg", "jpeg", "webp", "heic", "heif", "bmp", "tiff"])
+    uploaded_file = st.file_uploader("Choose a clear portrait image...")
 
     if uploaded_file:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp:
