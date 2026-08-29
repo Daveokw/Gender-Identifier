@@ -1,0 +1,16 @@
+# Environments
+venv/
+env/
+.venv/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# DeepFace weights directory (if downloaded locally)
+.deepface/
+
+# OS generated files
+.DS_Store
+Thumbs.db

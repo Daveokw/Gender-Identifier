@@ -1,9 +1,7 @@
 streamlit
-torch
-torchvision
 Pillow
-joblib
 numpy
 opencv-python-headless
-streamlit-webrtc
-scikit-learn
+deepface
+tf-keras
+retina-face
