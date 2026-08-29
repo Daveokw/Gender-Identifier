@@ -1,5 +1,6 @@
 streamlit
 Pillow
+pillow-heif
 numpy
 opencv-python-headless
 tensorflow-cpu
