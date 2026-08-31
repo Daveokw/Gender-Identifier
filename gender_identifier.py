@@ -175,8 +175,7 @@ with camera_tab:
     st.markdown("### Take a photo")
     if not st.session_state.camera_enabled:
         st.info(
-            "The camera is off. Select Enable camera when you are ready; your browser "
-            "will then ask for permission before providing access."
+            "Camera is off. Select Enable camera to continue."
         )
         st.button(
             "Enable camera",
