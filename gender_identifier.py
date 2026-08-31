@@ -150,6 +150,16 @@ def render_analysis(image_file, caption: str) -> None:
         )
 
 
+if "camera_enabled" not in st.session_state:
+    st.session_state.camera_enabled = False
+
+
+def set_camera_enabled(enabled: bool) -> None:
+    """Change camera availability before Streamlit renders the camera widget."""
+
+    st.session_state.camera_enabled = enabled
+
+
 upload_tab, camera_tab = st.tabs(["Upload image", "Use camera"])
 
 with upload_tab:
@@ -163,11 +173,32 @@ with upload_tab:
 
 with camera_tab:
     st.markdown("### Take a photo")
-    camera_image = st.camera_input(
-        "Keep one face clearly visible and look towards the camera"
-    )
-    if camera_image is not None:
-        render_analysis(camera_image, "Captured image")
+    if not st.session_state.camera_enabled:
+        st.info(
+            "The camera is off. Select Enable camera when you are ready; your browser "
+            "will then ask for permission before providing access."
+        )
+        st.button(
+            "Enable camera",
+            key="enable-camera",
+            type="primary",
+            on_click=set_camera_enabled,
+            args=(True,),
+        )
+    else:
+        st.button(
+            "Turn off camera",
+            key="disable-camera",
+            on_click=set_camera_enabled,
+            args=(False,),
+        )
+        camera_image = st.camera_input(
+            "Keep one face clearly visible and look towards the camera",
+            key="camera-input",
+            help="Camera permission is controlled by your browser.",
+        )
+        if camera_image is not None:
+            render_analysis(camera_image, "Captured image")
 
 st.caption(
     "This model estimates two presentation categories from facial appearance. It may be "
