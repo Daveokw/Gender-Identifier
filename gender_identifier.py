@@ -77,7 +77,7 @@ st.markdown(
     }
 
     /* Keep Streamlit's implementation details out of the user-facing uploader. */
-    [data-testid="stFileUploaderDropzoneInstructions"] small {
+    [data-testid="stFileUploaderDropzoneInstructions"] {
         display: none !important;
     }
     
