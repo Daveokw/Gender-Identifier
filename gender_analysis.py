@@ -16,7 +16,9 @@ logger = logging.getLogger(__name__)
 
 MAX_IMAGE_PIXELS = 24_000_000
 MIN_FACE_EDGE = 64
-MIN_BLUR_SCORE = 55.0
+BLUR_EVALUATION_EDGE = 256
+MIN_BLUR_SCORE = 8.0
+MIN_FACE_QUALITY_SCORE = 0.30
 MIN_BRIGHTNESS = 35.0
 MAX_BRIGHTNESS = 225.0
 MIN_CONTRAST = 18.0
@@ -68,12 +70,13 @@ def prepare_image(image: Image.Image) -> tuple[np.ndarray, float]:
 
 
 @lru_cache(maxsize=1)
-def _load_models() -> tuple[Any, Any]:
-    """Load one shared detector and classifier for the Streamlit process."""
+def _load_models() -> tuple[Any, Any, Any]:
+    """Load shared detection, quality, and classification models."""
 
     from uniface.attribute import FairFace
     from uniface.constants import RetinaFaceWeights
     from uniface.detection import RetinaFace
+    from uniface.quality import EDifFIQA
 
     providers = ["CPUExecutionProvider"]
     detector = RetinaFace(
@@ -81,16 +84,18 @@ def _load_models() -> tuple[Any, Any]:
         confidence_threshold=0.75,
         providers=providers,
     )
+    quality_model = EDifFIQA(providers=providers)
     classifier = FairFace(providers=providers)
-    return detector, classifier
+    return detector, quality_model, classifier
 
 
 def analyse_gender(
     image: Image.Image,
     detector: Any | None = None,
+    quality_model: Any | None = None,
     classifier: Any | None = None,
 ) -> AnalysisOutcome:
-    """Analyse one clearly visible face with RetinaFace and FairFace."""
+    """Analyse one usable face with RetinaFace, eDifFIQA, and FairFace."""
 
     try:
         analysed_image, scale = prepare_image(image)
@@ -98,9 +103,10 @@ def analyse_gender(
         return AnalysisOutcome(message=str(exc))
 
     try:
-        if detector is None or classifier is None:
-            default_detector, default_classifier = _load_models()
+        if detector is None or quality_model is None or classifier is None:
+            default_detector, default_quality_model, default_classifier = _load_models()
             detector = detector or default_detector
+            quality_model = quality_model or default_quality_model
             classifier = classifier or default_classifier
 
         faces = detector.detect(analysed_image)
@@ -112,6 +118,16 @@ def analyse_gender(
         quality_issue = _check_face_quality(face, analysed_image, scale)
         if quality_issue:
             return AnalysisOutcome(message=quality_issue)
+
+        quality_result = quality_model.predict(analysed_image, face.landmarks)
+        quality_score = float(getattr(quality_result, "score", float("nan")))
+        if not np.isfinite(quality_score):
+            logger.error("The face-quality model returned an invalid score")
+            return AnalysisOutcome(message="The image could not be analysed reliably.")
+        if quality_score < MIN_FACE_QUALITY_SCORE:
+            return AnalysisOutcome(
+                message="The face lacks enough usable detail. Try a clearer, closer photo."
+            )
 
         result = classifier.predict(analysed_image, face)
         label = getattr(result, "sex", None)
@@ -169,7 +185,7 @@ def _check_face_quality(
         return "The detected face could not be measured reliably."
 
     grey_face = cv2.cvtColor(face, cv2.COLOR_BGR2GRAY)
-    if float(cv2.Laplacian(grey_face, cv2.CV_64F).var()) < MIN_BLUR_SCORE:
+    if _blur_score(grey_face) < MIN_BLUR_SCORE:
         return "The face appears blurred. Use a sharper photo with less movement."
 
     brightness = float(grey_face.mean())
@@ -181,3 +197,21 @@ def _check_face_quality(
         return "The facial details have too little contrast. Try a clearer, better-lit photo."
 
     return None
+
+
+def _blur_score(grey_face: np.ndarray) -> float:
+    """Measure sharpness at a stable size and reject only severely blurred faces."""
+
+    height, width = grey_face.shape
+    scale = BLUR_EVALUATION_EDGE / max(height, width)
+    if scale != 1.0:
+        interpolation = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_CUBIC
+        grey_face = cv2.resize(
+            grey_face,
+            dsize=None,
+            fx=scale,
+            fy=scale,
+            interpolation=interpolation,
+        )
+
+    return float(cv2.Laplacian(grey_face, cv2.CV_64F).var())
