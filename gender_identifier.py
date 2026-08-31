@@ -88,10 +88,7 @@ st.markdown(
 )
 
 st.title("Gender Identifier")
-st.caption(
-    "Upload or capture one clearly visible face. The app will decline to estimate "
-    "when the image or model confidence is insufficient."
-)
+st.caption("Upload or capture a photo containing one clearly visible face.")
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 
@@ -140,14 +137,8 @@ def render_analysis(image_file, caption: str) -> None:
             st.info(outcome.message or "Try another image.")
             return
 
-        prediction = outcome.prediction
         st.success("Analysis complete")
-        st.metric("Model estimate", prediction.label)
-        st.metric("Model confidence", f"{prediction.confidence:.1f}%")
-        st.caption(
-            f"Face detection confidence: {prediction.detection_confidence:.1%}. "
-            "These scores indicate model confidence, not a person's gender identity."
-        )
+        st.metric("Prediction", outcome.prediction.label)
 
 
 if "camera_enabled" not in st.session_state:
@@ -174,9 +165,7 @@ with upload_tab:
 with camera_tab:
     st.markdown("### Take a photo")
     if not st.session_state.camera_enabled:
-        st.info(
-            "Camera is off. Select Enable camera to continue."
-        )
+        st.info("Camera is off. Select Enable camera to continue.")
         st.button(
             "Enable camera",
             key="enable-camera",
