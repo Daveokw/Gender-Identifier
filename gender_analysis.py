@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import logging
-import math
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any
 
 import cv2
@@ -16,9 +16,6 @@ logger = logging.getLogger(__name__)
 
 MAX_IMAGE_PIXELS = 24_000_000
 MIN_FACE_EDGE = 64
-MIN_DETECTION_CONFIDENCE = 0.90
-MIN_CLASSIFICATION_CONFIDENCE = 75.0
-MIN_CLASSIFICATION_MARGIN = 25.0
 MIN_BLUR_SCORE = 55.0
 MIN_BRIGHTNESS = 35.0
 MAX_BRIGHTNESS = 225.0
@@ -27,22 +24,17 @@ MIN_CONTRAST = 18.0
 
 @dataclass(frozen=True)
 class GenderPrediction:
-    """A prediction that passed every reliability threshold."""
+    """A prediction that passed every image-quality check."""
 
     label: str
-    confidence: float
-    detection_confidence: float
 
 
 @dataclass(frozen=True)
 class AnalysisOutcome:
-    """Either a reliable prediction or an actionable abstention message."""
+    """Either a prediction or an actionable reason why one was not made."""
 
     prediction: GenderPrediction | None = None
     message: str | None = None
-
-
-Analyser = Callable[..., Any]
 
 
 def prepare_image(image: Image.Image) -> tuple[np.ndarray, float]:
@@ -59,8 +51,8 @@ def prepare_image(image: Image.Image) -> tuple[np.ndarray, float]:
     longest_edge = max(width, height)
     scale = 1.0
 
-    # Upscaling can help RetinaFace locate a distant face, but the original
-    # face size is still checked later so interpolation cannot create certainty.
+    # Moderate upscaling helps the detector find distant faces. The original
+    # face dimensions are still checked later, so this cannot invent detail.
     if longest_edge < 1_200:
         scale = min(2.0, 1_200 / longest_edge)
     elif longest_edge > 3_000:
@@ -75,160 +67,104 @@ def prepare_image(image: Image.Image) -> tuple[np.ndarray, float]:
     return cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR), scale
 
 
-def interpret_result(
-    raw_result: Any,
-    analysed_image: np.ndarray,
-    scale: float,
-) -> AnalysisOutcome:
-    """Apply quality and confidence gates to one DeepFace response."""
+@lru_cache(maxsize=1)
+def _load_models() -> tuple[Any, Any]:
+    """Load one shared detector and classifier for the Streamlit process."""
 
-    if isinstance(raw_result, Mapping):
-        results = [raw_result]
-    elif isinstance(raw_result, Sequence) and not isinstance(raw_result, (str, bytes)):
-        results = raw_result
-    else:
-        return AnalysisOutcome(
-            message="The face analyser returned an unexpected result."
-        )
-    if len(results) == 0:
-        return AnalysisOutcome(
-            message="No face was detected. Try a clearer or closer photo."
-        )
-    if len(results) > 1:
-        return AnalysisOutcome(
-            message="Multiple faces were detected. Use an image containing one clearly visible person."
-        )
+    from uniface.attribute import FairFace
+    from uniface.constants import RetinaFaceWeights
+    from uniface.detection import RetinaFace
 
-    result = results[0]
-    if not isinstance(result, Mapping):
-        return AnalysisOutcome(
-            message="The face analyser returned an unexpected result."
-        )
-
-    quality_issue = _check_face_quality(result, analysed_image, scale)
-    if quality_issue:
-        return AnalysisOutcome(message=quality_issue)
-
-    gender_scores = result.get("gender")
-    if not isinstance(gender_scores, Mapping):
-        return AnalysisOutcome(
-            message="The model did not return usable classification scores."
-        )
-
-    try:
-        scores = {
-            "Man": float(gender_scores["Man"]),
-            "Woman": float(gender_scores["Woman"]),
-        }
-    except (KeyError, TypeError, ValueError):
-        return AnalysisOutcome(
-            message="The model did not return usable classification scores."
-        )
-    if any(
-        not math.isfinite(score) or not 0.0 <= score <= 100.0
-        for score in scores.values()
-    ):
-        return AnalysisOutcome(
-            message="The model did not return usable classification scores."
-        )
-
-    ranked_scores = sorted(scores.items(), key=lambda item: item[1], reverse=True)
-    dominant_label, confidence = ranked_scores[0]
-    margin = confidence - ranked_scores[1][1]
-
-    if confidence < MIN_CLASSIFICATION_CONFIDENCE or margin < MIN_CLASSIFICATION_MARGIN:
-        return AnalysisOutcome(
-            message=(
-                "The model is not confident enough to provide a reliable estimate. "
-                "Try a front-facing portrait with the face closer to the camera."
-            )
-        )
-
-    display_label = "Male" if dominant_label == "Man" else "Female"
-    return AnalysisOutcome(
-        prediction=GenderPrediction(
-            label=display_label,
-            confidence=confidence,
-            detection_confidence=float(result.get("face_confidence", 0.0)),
-        )
+    providers = ["CPUExecutionProvider"]
+    detector = RetinaFace(
+        model_name=RetinaFaceWeights.RESNET34,
+        confidence_threshold=0.75,
+        providers=providers,
     )
+    classifier = FairFace(providers=providers)
+    return detector, classifier
 
 
 def analyse_gender(
-    image: Image.Image, analyser: Analyser | None = None
+    image: Image.Image,
+    detector: Any | None = None,
+    classifier: Any | None = None,
 ) -> AnalysisOutcome:
-    """Analyse an image, abstaining whenever the result is not reliable."""
+    """Analyse one clearly visible face with RetinaFace and FairFace."""
 
     try:
         analysed_image, scale = prepare_image(image)
     except (OSError, ValueError) as exc:
         return AnalysisOutcome(message=str(exc))
 
-    if analyser is None:
-        from deepface import DeepFace
-
-        analyser = DeepFace.analyze
-
     try:
-        raw_result = analyser(
-            img_path=analysed_image,
-            actions=["gender"],
-            enforce_detection=True,
-            detector_backend="retinaface",
-            align=True,
-            expand_percentage=10,
-            silent=True,
-        )
-    except ValueError as exc:
-        if "face could not be detected" in str(exc).casefold():
-            return AnalysisOutcome(
-                message="No clear face was detected. Try a closer, sharper, front-facing photo."
-            )
-        logger.info("DeepFace rejected the uploaded image", exc_info=True)
-        return AnalysisOutcome(message="The image could not be analysed reliably.")
+        if detector is None or classifier is None:
+            default_detector, default_classifier = _load_models()
+            detector = detector or default_detector
+            classifier = classifier or default_classifier
+
+        faces = detector.detect(analysed_image)
+        face_issue = _check_detected_faces(faces)
+        if face_issue:
+            return AnalysisOutcome(message=face_issue)
+
+        face = faces[0]
+        quality_issue = _check_face_quality(face, analysed_image, scale)
+        if quality_issue:
+            return AnalysisOutcome(message=quality_issue)
+
+        result = classifier.predict(analysed_image, face)
+        label = getattr(result, "sex", None)
+        if label not in {"Male", "Female"}:
+            logger.error("FairFace returned an unsupported label: %r", label)
+            return AnalysisOutcome(message="The image could not be analysed reliably.")
     except Exception:
-        logger.exception("DeepFace analysis failed")
+        logger.exception("Face analysis failed")
         return AnalysisOutcome(
             message="Analysis could not be completed. Please try another image."
         )
 
-    return interpret_result(raw_result, analysed_image, scale)
+    return AnalysisOutcome(prediction=GenderPrediction(label=label))
+
+
+def _check_detected_faces(faces: Any) -> str | None:
+    if not isinstance(faces, Sequence):
+        return "The face detector returned an unexpected result."
+    if len(faces) == 0:
+        return "No clear face was detected. Try a closer, sharper, front-facing photo."
+    if len(faces) > 1:
+        return "Multiple faces were detected. Use an image containing one clearly visible person."
+    return None
 
 
 def _check_face_quality(
-    result: Mapping[str, Any],
+    face_result: Any,
     analysed_image: np.ndarray,
     scale: float,
 ) -> str | None:
+    bbox = getattr(face_result, "bbox", None)
+    if bbox is None:
+        return "The detected face could not be measured reliably."
+
     try:
-        detection_confidence = float(result.get("face_confidence", 0.0))
+        x1, y1, x2, y2 = (int(value) for value in bbox[:4])
     except (TypeError, ValueError):
-        detection_confidence = 0.0
-
-    if detection_confidence < MIN_DETECTION_CONFIDENCE:
-        return "The detected face is uncertain. Try a clearer, front-facing photo."
-
-    region = result.get("region")
-    if not isinstance(region, Mapping):
         return "The detected face could not be measured reliably."
 
-    try:
-        x = max(0, int(region["x"]))
-        y = max(0, int(region["y"]))
-        width = int(region["w"])
-        height = int(region["h"])
-    except (KeyError, TypeError, ValueError):
-        return "The detected face could not be measured reliably."
+    image_height, image_width = analysed_image.shape[:2]
+    x1 = max(0, min(x1, image_width))
+    y1 = max(0, min(y1, image_height))
+    x2 = max(0, min(x2, image_width))
+    y2 = max(0, min(y2, image_height))
+    width = x2 - x1
+    height = y2 - y1
 
     if width <= 0 or height <= 0:
         return "The detected face could not be measured reliably."
     if min(width, height) / scale < MIN_FACE_EDGE:
         return "The face is too far from the camera. Upload a closer portrait or crop the image."
 
-    image_height, image_width = analysed_image.shape[:2]
-    right = min(image_width, x + width)
-    bottom = min(image_height, y + height)
-    face = analysed_image[y:bottom, x:right]
+    face = analysed_image[y1:y2, x1:x2]
     if face.size == 0:
         return "The detected face could not be measured reliably."
 

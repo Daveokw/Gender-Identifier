@@ -1,76 +1,102 @@
 import unittest
+from types import SimpleNamespace
 
 import numpy as np
+from PIL import Image
 
-from gender_analysis import interpret_result
+from gender_analysis import analyse_gender
 
 
-def detailed_test_image() -> np.ndarray:
-    checkerboard = np.indices((200, 200)).sum(axis=0) % 2
+def detailed_test_image() -> Image.Image:
+    checkerboard = np.indices((1_200, 1_200)).sum(axis=0) % 2
     grey = (checkerboard * 255).astype(np.uint8)
-    return np.repeat(grey[:, :, np.newaxis], 3, axis=2)
+    rgb = np.repeat(grey[:, :, np.newaxis], 3, axis=2)
+    return Image.fromarray(rgb, mode="RGB")
 
 
-def result_with(**overrides):
-    result = {
-        "face_confidence": 0.99,
-        "region": {"x": 40, "y": 40, "w": 100, "h": 100},
-        "gender": {"Man": 90.0, "Woman": 10.0},
-    }
-    result.update(overrides)
-    return result
+class StubDetector:
+    def __init__(self, faces):
+        self.faces = faces
+
+    def detect(self, _image):
+        return self.faces
 
 
-class InterpretResultTests(unittest.TestCase):
+class StubClassifier:
+    def __init__(self, label):
+        self.label = label
+
+    def predict(self, _image, _face):
+        return SimpleNamespace(sex=self.label)
+
+
+def detected_face(bbox=(400, 400, 800, 800)):
+    return SimpleNamespace(bbox=np.asarray(bbox, dtype=np.float32))
+
+
+class AnalyseGenderTests(unittest.TestCase):
     def setUp(self):
         self.image = detailed_test_image()
 
-    def test_accepts_a_clear_high_confidence_result(self):
-        outcome = interpret_result([result_with()], self.image, scale=1.0)
+    def test_returns_male_for_a_clear_face(self):
+        outcome = analyse_gender(
+            self.image,
+            detector=StubDetector([detected_face()]),
+            classifier=StubClassifier("Male"),
+        )
 
         self.assertIsNotNone(outcome.prediction)
         self.assertEqual(outcome.prediction.label, "Male")
-        self.assertEqual(outcome.prediction.confidence, 90.0)
 
-    def test_abstains_when_classification_scores_are_too_close(self):
-        outcome = interpret_result(
-            [result_with(gender={"Man": 55.0, "Woman": 45.0})],
+    def test_returns_female_for_a_clear_face(self):
+        outcome = analyse_gender(
             self.image,
-            scale=1.0,
+            detector=StubDetector([detected_face()]),
+            classifier=StubClassifier("Female"),
         )
 
-        self.assertIsNone(outcome.prediction)
-        self.assertIn("not confident enough", outcome.message)
+        self.assertIsNotNone(outcome.prediction)
+        self.assertEqual(outcome.prediction.label, "Female")
 
-    def test_abstains_when_face_was_too_small_in_original_image(self):
-        outcome = interpret_result(
-            [result_with(region={"x": 40, "y": 40, "w": 100, "h": 100})],
+    def test_declines_when_face_is_too_small(self):
+        outcome = analyse_gender(
             self.image,
-            scale=2.0,
+            detector=StubDetector([detected_face((20, 20, 70, 70))]),
+            classifier=StubClassifier("Male"),
         )
 
         self.assertIsNone(outcome.prediction)
         self.assertIn("too far", outcome.message)
 
-    def test_abstains_when_multiple_faces_are_detected(self):
-        outcome = interpret_result(
-            [result_with(), result_with()],
+    def test_declines_when_multiple_faces_are_detected(self):
+        outcome = analyse_gender(
             self.image,
-            scale=1.0,
+            detector=StubDetector([detected_face(), detected_face()]),
+            classifier=StubClassifier("Male"),
         )
 
         self.assertIsNone(outcome.prediction)
         self.assertIn("Multiple faces", outcome.message)
 
-    def test_abstains_when_face_detection_is_uncertain(self):
-        outcome = interpret_result(
-            [result_with(face_confidence=0.70)],
+    def test_declines_when_no_face_is_detected(self):
+        outcome = analyse_gender(
             self.image,
-            scale=1.0,
+            detector=StubDetector([]),
+            classifier=StubClassifier("Male"),
         )
 
         self.assertIsNone(outcome.prediction)
-        self.assertIn("detected face is uncertain", outcome.message)
+        self.assertIn("No clear face", outcome.message)
+
+    def test_declines_an_unsupported_classifier_label(self):
+        outcome = analyse_gender(
+            self.image,
+            detector=StubDetector([detected_face()]),
+            classifier=StubClassifier("Unknown"),
+        )
+
+        self.assertIsNone(outcome.prediction)
+        self.assertIn("could not be analysed", outcome.message)
 
 
 if __name__ == "__main__":
