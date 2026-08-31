@@ -75,6 +75,11 @@ st.markdown(
         padding: 1rem;
         border: 1px dashed rgba(255, 255, 255, 0.2);
     }
+
+    /* Keep Streamlit's implementation details out of the user-facing uploader. */
+    [data-testid="stFileUploaderDropzoneInstructions"] small {
+        display: none !important;
+    }
     
     /* Metrics styling */
     [data-testid="stMetricValue"] {
@@ -91,6 +96,21 @@ st.title("Gender Identifier")
 st.caption("Upload or capture a photo containing one clearly visible face.")
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+IMAGE_EXTENSIONS = (
+    "jpg",
+    "jpeg",
+    "jpe",
+    "jfif",
+    "png",
+    "webp",
+    "heic",
+    "heif",
+    "bmp",
+    "dib",
+    "gif",
+    "tif",
+    "tiff",
+)
 
 
 @st.cache_data(show_spinner=False, max_entries=8)
@@ -106,7 +126,7 @@ def analyse_image_bytes(image_bytes: bytes) -> AnalysisOutcome:
 
 
 def render_analysis(image_file, caption: str) -> None:
-    """Render an image and its reliability-aware result."""
+    """Render an image and its quality-checked result."""
 
     image_bytes = image_file.getvalue()
     if not image_bytes:
@@ -126,7 +146,7 @@ def render_analysis(image_file, caption: str) -> None:
 
     image_column, result_column = st.columns(2)
     with image_column:
-        st.image(preview, caption=caption, use_container_width=True)
+        st.image(preview, caption=caption, width="stretch")
 
     with result_column:
         with st.spinner("Analysing facial features..."):
@@ -157,7 +177,7 @@ with upload_tab:
     st.markdown("### Upload a photo")
     uploaded_file = st.file_uploader(
         "Choose an image",
-        type=["jpg", "jpeg", "png", "webp", "heic", "heif"],
+        type=IMAGE_EXTENSIONS,
     )
     if uploaded_file is not None:
         render_analysis(uploaded_file, "Uploaded image")

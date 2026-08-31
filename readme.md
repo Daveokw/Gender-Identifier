@@ -8,7 +8,7 @@ Try the [Gender Identifier Streamlit application](https://gender-identifier.stre
 
 ## How it works
 
-The application uses a high-accuracy RetinaFace ResNet-34 detector to locate one face before running the balanced FairFace classifier. Both models run locally in the Streamlit process through UniFace and ONNX Runtime, without a third-party prediction API.
+The application uses a high-accuracy RetinaFace ResNet-34 detector to locate one face, an eDifFIQA model to assess whether the face contains usable visual detail, and the balanced FairFace classifier to produce the estimate. All three models run locally in the Streamlit process through UniFace and ONNX Runtime, without a third-party prediction API.
 
 Before displaying an estimate, the image-quality layer checks:
 
@@ -20,7 +20,7 @@ If any check fails, the app explains how to improve the image instead of forcing
 
 ## Technology
 
-- FairFace and RetinaFace ResNet-34
+- FairFace, RetinaFace ResNet-34, and eDifFIQA-T
 - UniFace and ONNX Runtime
 - OpenCV
 - Pillow and NumPy
@@ -37,7 +37,7 @@ pip install -r requirements.txt
 streamlit run gender_identifier.py
 ```
 
-UniFace downloads and verifies the free RetinaFace and FairFace weights during the first analysis. Later analyses reuse the cached ONNX models.
+UniFace downloads and verifies the free RetinaFace, eDifFIQA, and FairFace weights during the first analysis. Later analyses reuse the cached ONNX models.
 
 Run the lightweight reliability tests with:
 
