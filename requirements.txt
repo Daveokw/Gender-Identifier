@@ -2,8 +2,4 @@ streamlit
 Pillow
 pillow-heif
 numpy
-opencv-python-headless
-tensorflow-cpu
-tf-keras
-retina-face
-deepface
+uniface[cpu]==4.0.0
