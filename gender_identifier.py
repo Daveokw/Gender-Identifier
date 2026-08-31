@@ -1,16 +1,19 @@
-import streamlit as st
-import tempfile
-from PIL import Image
+from io import BytesIO
+
 import pillow_heif
+import streamlit as st
+from PIL import Image
+
+from gender_analysis import AnalysisOutcome, analyse_gender
+
 pillow_heif.register_heif_opener()
-import os
-from deepface import DeepFace
 
 # Streamlit UI Configuration
 st.set_page_config(page_title="Gender Identifier", page_icon="🧑‍🦰", layout="wide")
 
 # Custom CSS for Premium Design
-st.markdown("""
+st.markdown(
+    """
 <style>
     /* Google Fonts */
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
@@ -80,125 +83,93 @@ st.markdown("""
         color: #4ECDC4;
     }
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 st.title("Gender Identifier")
+st.caption(
+    "Upload or capture one clearly visible face. The app will decline to estimate "
+    "when the image or model confidence is insufficient."
+)
 
-def classify_gender(image_path):
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+
+
+@st.cache_data(show_spinner=False, max_entries=8)
+def analyse_image_bytes(image_bytes: bytes) -> AnalysisOutcome:
+    """Decode and analyse one image without leaving temporary files behind."""
+
     try:
-        # DeepFace analyze returns a list of dictionaries (one for each face detected)
-        # We use 'retinaface' backend which is far superior for dark/angled/CGI faces
-        result = DeepFace.analyze(
-            img_path=image_path, 
-            actions=['gender'], 
-            enforce_detection=True,
-            detector_backend='retinaface'
+        with Image.open(BytesIO(image_bytes)) as image:
+            image.load()
+            return analyse_gender(image)
+    except (OSError, ValueError):
+        return AnalysisOutcome(message="This file is not a readable image.")
+
+
+def render_analysis(image_file, caption: str) -> None:
+    """Render an image and its reliability-aware result."""
+
+    image_bytes = image_file.getvalue()
+    if not image_bytes:
+        st.warning("The image is empty. Please choose another file.")
+        return
+    if len(image_bytes) > MAX_UPLOAD_BYTES:
+        st.warning("The image is too large. Please upload a file smaller than 10 MB.")
+        return
+
+    try:
+        with Image.open(BytesIO(image_bytes)) as image:
+            image.load()
+            preview = image.copy()
+    except OSError:
+        st.warning("This file is not a readable image.")
+        return
+
+    image_column, result_column = st.columns(2)
+    with image_column:
+        st.image(preview, caption=caption, use_container_width=True)
+
+    with result_column:
+        with st.spinner("Analysing facial features..."):
+            outcome = analyse_image_bytes(image_bytes)
+
+        if outcome.prediction is None:
+            st.warning("No reliable estimate")
+            st.info(outcome.message or "Try another image.")
+            return
+
+        prediction = outcome.prediction
+        st.success("Analysis complete")
+        st.metric("Model estimate", prediction.label)
+        st.metric("Model confidence", f"{prediction.confidence:.1f}%")
+        st.caption(
+            f"Face detection confidence: {prediction.detection_confidence:.1%}. "
+            "These scores indicate model confidence, not a person's gender identity."
         )
-        
-        if isinstance(result, list):
-            if len(result) > 1:
-                return None, "Multiple faces detected. Please upload an image with exactly one clearly visible person."
-            result = result[0]
-            
-        gender_dict = result['gender']
-        # DeepFace returns percentages for 'Man' and 'Woman'
-        dominant_gender = max(gender_dict, key=gender_dict.get)
-        
-        display_gender = "Male" if dominant_gender == "Man" else "Female"
-        
-        return display_gender, None
-    except ValueError as e:
-        if "Face could not be detected" in str(e):
-            return None, "No clear face detected. Please use a closer, clearer portrait photo."
-        return None, str(e)
-    except Exception as e:
-        return None, str(e)
 
-# Session state init
-if "use_camera" not in st.session_state:
-    st.session_state.use_camera = False
-if "image_captured" not in st.session_state:
-    st.session_state.image_captured = False
-if "predicted" not in st.session_state:
-    st.session_state.predicted = False
-if "temp_path" not in st.session_state:
-    st.session_state.temp_path = ""
 
-# Layout with tabs
-tab1, tab2 = st.tabs(["📁 Upload Image", "📷 Capture from Webcam"])
+upload_tab, camera_tab = st.tabs(["Upload image", "Use camera"])
 
-with tab1:
-    st.markdown("### Upload a Photo")
-    uploaded_file = st.file_uploader("Choose a clear portrait image...")
+with upload_tab:
+    st.markdown("### Upload a photo")
+    uploaded_file = st.file_uploader(
+        "Choose an image",
+        type=["jpg", "jpeg", "png", "webp", "heic", "heif"],
+    )
+    if uploaded_file is not None:
+        render_analysis(uploaded_file, "Uploaded image")
 
-    if uploaded_file:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp:
-            temp_path = temp.name
+with camera_tab:
+    st.markdown("### Take a photo")
+    camera_image = st.camera_input(
+        "Keep one face clearly visible and look towards the camera"
+    )
+    if camera_image is not None:
+        render_analysis(camera_image, "Captured image")
 
-        # Convert image to a standard RGB JPEG so OpenCV/DeepFace can read it
-        image = Image.open(uploaded_file)
-        if image.mode != 'RGB':
-            image = image.convert('RGB')
-        image.save(temp_path, format="JPEG")
-
-        col1, col2 = st.columns(2)
-        with col1:
-            st.image(image, caption="Uploaded Image", use_container_width=True)
-
-        with col2:
-            with st.spinner("Analyzing facial features..."):
-                label, error = classify_gender(temp_path)
-                
-                if label:
-                    st.success("✅ Analysis Complete")
-                    st.metric(label="Predicted Gender", value=label.capitalize())
-                else:
-                    st.error(f"❌ Error during analysis: {error}")
-
-with tab2:
-    st.markdown("### Take a Photo")
-    
-    if not st.session_state.get("use_camera", False) and not st.session_state.image_captured:
-        if st.button("📸 Enable Camera"):
-            st.session_state.use_camera = True
-            st.session_state.predicted = False
-            st.rerun()
-
-    if st.session_state.get("use_camera", False) and not st.session_state.image_captured:
-        camera_image = st.camera_input("Look straight into the camera")
-        if camera_image:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp:
-                st.session_state.temp_path = temp.name
-            
-            # Convert camera image to a standard RGB JPEG
-            image = Image.open(camera_image)
-            if image.mode != 'RGB':
-                image = image.convert('RGB')
-            image.save(st.session_state.temp_path, format="JPEG")
-            
-            st.session_state.image_captured = True
-            st.session_state.predicted = False
-            st.session_state.use_camera = False
-            st.rerun()
-
-    if st.session_state.image_captured:
-        col1, col2 = st.columns(2)
-        with col1:
-            st.image(Image.open(st.session_state.temp_path), caption="Captured Image", use_container_width=True)
-
-        with col2:
-            if not st.session_state.predicted:
-                with st.spinner("Analyzing facial features..."):
-                    label, error = classify_gender(st.session_state.temp_path)
-                    
-                    if label:
-                        st.success("✅ Analysis Complete")
-                        st.metric(label="Predicted Gender", value=label.capitalize())
-                    else:
-                        st.error(f"❌ Error during analysis: {error}")
-                st.session_state.predicted = True
-
-        if st.button("🔄 Retake Image"):
-            for key in ("image_captured", "predicted", "temp_path", "use_camera"):
-                st.session_state[key] = False
-            st.rerun()
+st.caption(
+    "This model estimates two presentation categories from facial appearance. It may be "
+    "wrong and cannot determine gender identity; do not use it for consequential decisions."
+)
