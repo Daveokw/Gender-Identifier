@@ -2,7 +2,7 @@ from io import BytesIO
 
 import pillow_heif
 import streamlit as st
-from PIL import Image
+from PIL import Image, ImageOps
 
 from gender_analysis import AnalysisOutcome, analyse_gender
 
@@ -80,6 +80,11 @@ st.markdown(
     [data-testid="stFileUploaderDropzoneInstructions"] {
         display: none !important;
     }
+
+    /* Match the familiar mirror behaviour of a front-facing camera. */
+    [data-testid="stCameraInput"] video {
+        transform: scaleX(-1) !important;
+    }
     
     /* Metrics styling */
     [data-testid="stMetricValue"] {
@@ -125,7 +130,12 @@ def analyse_image_bytes(image_bytes: bytes) -> AnalysisOutcome:
         return AnalysisOutcome(message="This file is not a readable image.")
 
 
-def render_analysis(image_file, caption: str) -> None:
+def render_analysis(
+    image_file,
+    caption: str,
+    *,
+    mirror_preview: bool = False,
+) -> None:
     """Render an image and its quality-checked result."""
 
     image_bytes = image_file.getvalue()
@@ -140,6 +150,8 @@ def render_analysis(image_file, caption: str) -> None:
         with Image.open(BytesIO(image_bytes)) as image:
             image.load()
             preview = image.copy()
+            if mirror_preview:
+                preview = ImageOps.mirror(preview)
     except OSError:
         st.warning("This file is not a readable image.")
         return
@@ -206,7 +218,7 @@ with camera_tab:
             help="Camera permission is controlled by your browser.",
         )
         if camera_image is not None:
-            render_analysis(camera_image, "Captured image")
+            render_analysis(camera_image, "Captured image", mirror_preview=True)
 
 st.caption(
     "This model estimates two presentation categories from facial appearance. It may be "

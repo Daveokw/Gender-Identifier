@@ -2,6 +2,8 @@
 
 A Streamlit application that provides a binary facial-presentation estimate from one uploaded or captured image. The app asks for a clearer image when it cannot obtain enough usable facial detail.
 
+The camera opens only after the user enables it and grants browser permission. Its live preview and displayed capture use the familiar front-camera mirror view, while analysis uses the original captured image data.
+
 ## Live demo
 
 Try the [Gender Identifier Streamlit application](https://gender-identifier.streamlit.app).
