@@ -56,3 +56,7 @@ Do not use this application for identity verification, access decisions, employm
 ## Model attribution
 
 The application uses [UniFace](https://github.com/yakhyo/uniface), released under the MIT licence, and [FairFace](https://github.com/dchen236/FairFace) model weights distributed under CC BY 4.0. FairFace was introduced by Kimmo Kärkkäinen and Jungseock Joo in *FairFace: Face Attribute Dataset for Balanced Race, Gender, and Age for Bias Measurement and Mitigation*.
+
+## GitHub Actions
+
+The monthly `Record Repository Activity` workflow updates `.github/repository-heartbeat.txt` on the first day of each month at 03:17 UTC so the repository stays active even when no code is being developed. It can also be triggered manually from the **Actions** tab. GitHub may automatically disable scheduled workflows in a public repository after roughly 60 days without repository activity; the heartbeat runs well before that limit to keep all scheduled workflows enabled.
